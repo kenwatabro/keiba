@@ -36,7 +36,7 @@ def acquire_race(trace_back_year):
 
             if os.path.exists(f"{SAVE_RACE_DATA_FOLDER}/Race_{year}_{start}-{end}.pickle"):
                 print(f"Race_{year}_{start}-{end}.pickle is already exists.")
-                break
+                continue
             
             df = _get_race_data(scraper, year, start, race_id_no_round_list[start:end])
             _save_files(year, start, df)
