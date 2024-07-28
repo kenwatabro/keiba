@@ -30,7 +30,8 @@ class RaceScraper(Scraper):
         }
 
     def scrape(self, id_list: list) -> pd.DataFrame:
-
+        self.df_race = pd.DataFrame()
+        self.race_results = {}
         for race_id_no_round in tqdm(id_list):
             for i in range(1, 13):
                 race_id = race_id_no_round + str(i).zfill(2)

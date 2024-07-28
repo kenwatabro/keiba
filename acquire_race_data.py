@@ -30,16 +30,18 @@ def acquire_race(trace_back_year):
     for year in range(int(start_year), int(end_year) + 1, 1):
         race_id_no_round_list = _get_race_id_no_round_list(year)
 
-        for start in range(0, len(race_id_no_round_list), 100):
-            end = min(start + 100, len(race_id_no_round_list))
+        for start in range(0, len(race_id_no_round_list), 72):
+            end = min(start + 72, len(race_id_no_round_list))
+            place = race_id_no_round_list[start][4:6]
             print(f"acquiring race data: year={year}, start={start}, end={end}")
 
-            if os.path.exists(f"{SAVE_RACE_DATA_FOLDER}/Race_{year}_{start}-{end}.pickle"):
-                print(f"Race_{year}_{start}-{end}.pickle is already exists.")
+            if os.path.exists(f"{SAVE_RACE_DATA_FOLDER}/Race_{year}_{place}.pickle"):
+                print(f"Race_{year}_{place}.pickle is already exists.")
                 continue
-            
+
             df = _get_race_data(scraper, year, start, race_id_no_round_list[start:end])
-            _save_files(year, start, df)
+
+            _save_files(year, place, df)
 
 
 def _get_race_id_no_round_list(year: str) -> list[str]:  # 引数で指定された年のレースID一覧:
@@ -83,11 +85,11 @@ def _save_horse_ids(horse_ids):
         json.dump(list(horse_ids), f)
 
 
-def _save_files(year: str, start: int, df_horse_results: pd.DataFrame):
+def _save_files(year: str, place: int, df_horse_results: pd.DataFrame):
     df_horse_results.to_pickle(
-        f"{SAVE_RACE_DATA_FOLDER}/Race_{year}_{start}-{start+100}.pickle"
+        f"{SAVE_RACE_DATA_FOLDER}/Race_{year}_{place}.pickle"
     )
-    print(f"Race_{year}_{start}-{start+100}.pickle is saved.")
+    print(f"Race_{year}_{place}.pickle is saved.")
 
 if __name__ == "__main__":
     main()
