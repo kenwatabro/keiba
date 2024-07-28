@@ -89,8 +89,10 @@ class RaceScraper(Scraper):
 
         info = re.findall(r"\w+", texts)
         for text in info:
-            if text in ["芝", "ダート"]:
-                self.df_race["race_type"] = [text] * len(self.df_race)
+            if "芝" in text:
+                self.df_race["race_type"] = ["芝"] * len(self.df_race)
+            if "ダート" in text:
+                self.df_race["race_type"] = ["ダート"] * len(self.df_race)
             if "障" in text:
                 self.df_race["race_type"] = ["障害"] * len(self.df_race)
             if "m" in text:
