@@ -6,7 +6,7 @@ import os
 import json
 
 from modules.Scrape import RaceScraper
-from modules.Preprocess import HorsePastPreprocessor
+
 
 SAVE_RACE_DATA_FOLDER = "horse_results"
 HORSE_ID_FILE = "utils/horse_ids.json"

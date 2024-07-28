@@ -172,21 +172,26 @@ class PedsScraper(Scraper):
         self.dict_peds = {}
 
     def scrape(self, horse_id_list: list):
+        self.df_peds = pd.DataFrame()
+        self.dict_peds = {}
         for horse_id in tqdm(horse_id_list):
             time.sleep(1)
+            print(f"Scraping horse {horse_id}")
             try:
                 url = "https://db.netkeiba.com/horse/ped/" + horse_id
-                df_pads_html = pd.read_html(url)[0]
+                html = self.session.get(url, cookies=self.session.cookies)
+                html.encoding = "EUC-JP"
+                df_peds_html = pd.read_html(StringIO(html.text))[0]
 
                 # 重複を削除して1列のSeries型データに直す
                 generations = {}
                 for i in reversed(range(5)):
-                    generations[i] = df[i]
-                    df.drop([i], axis=1, inplace=True)
-                    df = df.drop_duplicates()
+                    generations[i] = df_peds_html[i]
+                    df_peds_html.drop([i], axis=1, inplace=True)
+                    df_peds_html = df_peds_html.drop_duplicates()
                 ped = pd.concat([generations[i] for i in range(5)]).rename(horse_id)
 
-                self.peds_dict[horse_id] = ped.reset_index(drop=True)
+                self.dict_peds[horse_id] = ped.reset_index(drop=True)
             except IndexError:
                 continue
             except Exception as e:
@@ -196,7 +201,7 @@ class PedsScraper(Scraper):
                 break
 
         # 列名をpeds_0, ..., peds_61にする
-        self.df_peds = pd.concat([self.peds_dict[key] for key in self.peds_dict], axis=1).T.add_prefix(
+        self.df_peds = pd.concat([self.dict_peds[key] for key in self.dict_peds], axis=1).T.add_prefix(
             "peds_"
         )
         
