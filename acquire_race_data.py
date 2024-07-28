@@ -28,34 +28,34 @@ def acquire_race(trace_back_year):
     end_year = year
 
     for year in range(int(start_year), int(end_year) + 1, 1):
-        race_id_list = _get_race_id_list(year)
+        race_id_no_round_list = _get_race_id_no_round_list(year)
 
-        for start in range(0, len(race_id_list), 1000):
-            end = min(start + 1000, len(race_id_list))
+        for start in range(0, len(race_id_no_round_list), 100):
+            end = min(start + 100, len(race_id_no_round_list))
             print(f"acquiring race data: year={year}, start={start}, end={end}")
 
             if os.path.exists(f"{SAVE_RACE_DATA_FOLDER}/Race_{year}_{start}-{end}.pickle"):
                 print(f"Race_{year}_{start}-{end}.pickle is already exists.")
                 break
             
-            df = _get_race_data(scraper, year, start, race_id_list[start:end])
+            df = _get_race_data(scraper, year, start, race_id_no_round_list[start:end])
             _save_files(year, start, df)
 
 
-def _get_race_id_list(year: str) -> list[str]:  # 引数で指定された年のレースID一覧:
+def _get_race_id_no_round_list(year: str) -> list[str]:  # 引数で指定された年のレースID一覧:
     race_id_list = []
     for place in range(1, 11, 1):
         for kai in range(1, 7, 1):
             for day in range(1, 13, 1):
-                for r in range(1, 13, 1):
-                    race_id = (
-                        str(year)
-                        + str(place).zfill(2)
-                        + str(kai).zfill(2)
-                        + str(day).zfill(2)
-                        + str(r).zfill(2)
-                    )
-                    race_id_list.append(race_id)
+                # for r in range(1, 13, 1):
+                race_id = (
+                    str(year)
+                    + str(place).zfill(2)
+                    + str(kai).zfill(2)
+                    + str(day).zfill(2)
+                    # + str(r).zfill(2)
+                )
+                race_id_list.append(race_id)
     return race_id_list
 
 
@@ -85,9 +85,9 @@ def _save_horse_ids(horse_ids):
 
 def _save_files(year: str, start: int, df_horse_results: pd.DataFrame):
     df_horse_results.to_pickle(
-        f"{SAVE_RACE_DATA_FOLDER}/Race_{year}_{start}-{start+1000}.pickle"
+        f"{SAVE_RACE_DATA_FOLDER}/Race_{year}_{start}-{start+100}.pickle"
     )
-    print(f"Race_{year}_{start}-{start+1000}.pickle is saved.")
+    print(f"Race_{year}_{start}-{start+100}.pickle is saved.")
 
 if __name__ == "__main__":
     main()

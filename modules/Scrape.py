@@ -16,38 +16,58 @@ class RaceScraper(Scraper):
 
         self.df_race = pd.DataFrame()
         self.race_results = {}
+        self.location_map = {
+            "01": "札幌",
+            "02": "函館",
+            "03": "福島",
+            "04": "新潟",
+            "05": "東京",
+            "06": "中山",
+            "07": "中京",
+            "08": "京都",
+            "09": "阪神",
+            "10": "小倉",
+        }
 
     def scrape(self, id_list: list) -> pd.DataFrame:
 
-        for race_id in tqdm(id_list):
-            time.sleep(1)
-            print(f"Scraping race {race_id}")
-            try:
-                url = "https://db.sp.netkeiba.com/race/" + race_id
-                self.html = self.session.get(url, cookies=self.session.cookies)
-                self.html.encoding = "EUC-JP"
-                self.soup = BeautifulSoup(self.html.content, "html.parser")
+        for race_id_no_round in tqdm(id_list):
+            for i in range(1, 13):
+                race_id = race_id_no_round + str(i).zfill(2)
+                time.sleep(1)
+                print(f"Scraping race {race_id}")
+                try:
+                    url = "https://db.sp.netkeiba.com/race/" + race_id
+                    self.html = self.session.get(url, cookies=self.session.cookies)
+                    self.html.encoding = "EUC-JP"
+                    self.soup = BeautifulSoup(self.html.content, "html.parser")
 
-                self._get_race_basic_info()
-                # print("Got basic info")
-                self._get_horse_jockey_id()
-                # print("Got horse and jockey id")
-                self._get_pace()
-                # print("Got lap time")
-                self._set_index(race_id)
+                    self._get_race_basic_info()
+                    # print("Got basic info")
+                    self._get_horse_jockey_id()
+                    # print("Got horse and jockey id")
+                    self._get_pace()
+                    # print("Got lap time")
+                    self._set_index(race_id)
 
-            # 存在しないrace_idを飛ばす
-            except IndexError:
-                print(f"IndexErroe: Race {url} not found")
-                continue
-            except (
-                AttributeError
-            ):  # 存在しないrace_idでAttributeErrorになるページもあるので追加
-                print(f"AttributeErroe: Race {url} not found")
-                continue
-            # wifiの接続が切れた時などでも途中までのデータを返せるようにする
-            except Exception as e:
-                print(e)
+                # 存在しないrace_idを飛ばす
+                except IndexError:
+                    print(f"IndexErroe: Race {url} not found")
+                    break
+                except (
+                    AttributeError
+                ):  # 存在しないrace_idでAttributeErrorになるページもあるので追加
+                    print(f"AttributeErroe: Race {url} not found")
+                    break
+                # wifiの接続が切れた時などでも途中までのデータを返せるようにする
+                except Exception as e:
+                    year = race_id_no_round[:4]
+                    location_code = race_id_no_round[4:6]
+                    location = self.location_map[location_code]
+                    round_no = race_id_no_round[6:8]
+                    day_no = race_id_no_round[8:10]
+                    print(e, f"{year}年 {location} 第{round_no}回 {day_no}日目のレースは存在しません")
+                    break
 
         # pd.DataFrame型にして一つのデータにまとめる
         race_results_df = pd.concat([self.race_results[key] for key in self.race_results])
@@ -145,7 +165,7 @@ class RaceScraper(Scraper):
 class PedsScraper(Scraper):
     def __init__(self):
         super().__init__()
-        self.df_race = pd.DataFrame()
+        self.df_peds = pd.DataFrame()
         self.dict_peds = {}
 
     def scrape(self, horse_id_list: list):
