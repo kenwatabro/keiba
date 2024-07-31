@@ -66,8 +66,11 @@ def _get_race_data(scraper: RaceScraper, year: str, start: int, race_id_list: li
 
     # horse_idのリストを更新
     existing_horse_ids = _load_horse_ids()
-    new_horse_ids = set(race_res["horse_id"].unique())
-    updated_horse_ids = existing_horse_ids.union(new_horse_ids)
+    try:
+        new_horse_ids = set(race_res["horse_id"].unique())
+        updated_horse_ids = existing_horse_ids.union(new_horse_ids)
+    except Exception as e:
+        print(e)
     _save_horse_ids(updated_horse_ids)
 
     return race_res
