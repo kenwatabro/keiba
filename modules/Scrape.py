@@ -71,7 +71,10 @@ class RaceScraper(Scraper):
                     break
 
         # pd.DataFrame型にして一つのデータにまとめる
-        race_results_df = pd.concat([self.race_results[key] for key in self.race_results])
+        if self.race_results:
+            race_results_df = pd.concat([self.race_results[key] for key in self.race_results])
+        else:
+            race_results_df = pd.DataFrame()
 
         return race_results_df
 
