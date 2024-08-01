@@ -13,19 +13,25 @@ from modules.methods import Preprocessor
 
 JOBLIB_PATH = "joblib/"    
 
-class HorsePastPreprocessor(Preprocessor):
+class HorsePastPreprocessor():
     def __init__(self, race_results_df):
         super().__init__()
         self.df_race_results = race_results_df
 
     def preprocess(self):
+        self._remove_space_from_columns()
         self._convert_numeric_values()
         self._split_columns()
         self._process_dates()
         self._process_pass_columns()
         self._drop_unnecessary_columns()
+        self._add_time_index_features()
+        self._add_season()
         self._get_categorical_values()
         return self.df_race_results
+    
+    def _remove_space_from_columns(self):
+        self.df_race_results.columns = self.df_race_results.columns.str.strip()
 
     def _convert_numeric_values(self):
         self.df_race_results["着順"] = pd.to_numeric(self.df_race_results["着順"], errors="coerce")
@@ -87,17 +93,61 @@ class HorsePastPreprocessor(Preprocessor):
             inplace=True,
         )
 
+    def _add_time_index_features(self):
+        # 日付でソート
+        self.df_race_results = self.df_race_results.sort_values(['horse_id', 'date'])
+
+        # 前回のレースからの間隔を計算（日数）
+        self.df_race_results['days_since_last_race'] = self.df_race_results.groupby('horse_id')['date'].diff().dt.days
+
+        # 1レース前の情報を追加
+        self.df_race_results['prev_タイム指数'] = self.df_race_results.groupby('horse_id')['タイム指数'].shift(1)
+
+        # 集計関数を定義
+        def aggregate_time_index(group, n_races):
+            return group['タイム指数'].shift().rolling(window=n_races, min_periods=1).agg(['mean', 'max'])
+
+        # 過去3レース、5レースの平均と最大値を計算
+        for n in [3, 5]:
+            agg_result = self.df_race_results.groupby('horse_id').apply(
+                lambda x: aggregate_time_index(x, n)
+            ).reset_index()
+            self.df_race_results[f'time_index_mean_{n}'] = agg_result['mean']
+            self.df_race_results[f'time_index_max_{n}'] = agg_result['max']
+            self.df_race_results[f'time_index_min_{n}'] = agg_result['min']
+
+        # 同じ条件下での過去の平均値と最大値を計算
+        conditions = ['place', 'course_len', 'weather', 'ground_state']
+        for condition in conditions:
+            self.df_race_results[f'time_index_mean_{condition}'] = self.df_race_results.groupby(['horse_id', condition])['タイム指数'].transform(
+                lambda x: x.shift().expanding().mean()
+            )
+            self.df_race_results[f'time_index_max_{condition}'] = self.df_race_results.groupby(['horse_id', condition])['タイム指数'].transform(
+                lambda x: x.shift().expanding().max()
+            )
+            self.df_race_results[f'time_index_min_{condition}'] = self.df_race_results.groupby(['horse_id', condition])['タイム指数'].transform(
+                lambda x: x.shift().expanding().min()
+            )
+
+    def _add_season(self):
+        # 季節を追加（春：3-5月、夏：6-8月、秋：9-11月、冬：12-2月）
+        self.df_race_results['season'] = pd.Categorical(
+            self.df_race_results['date'].dt.month.map({1: '冬', 2: '冬', 3: '春', 4: '春', 5: '春',
+                                                        6: '夏', 7: '夏', 8: '夏', 9: '秋', 10: '秋',
+                                                        11: '秋', 12: '冬'}),
+            categories=['春', '夏', '秋', '冬'], ordered=True
+        )
+
     # カテゴリ変数の処理
     def _get_categorical_values(self):
-        try:
-            self.le_horse = joblib.load(os.path.join(JOBLIB_PATH, "le_horse.joblib"))
-            self.le_jockey = joblib.load(os.path.join(JOBLIB_PATH, "le_jockey.joblib"))
-        except FileNotFoundError:
-            # ファイルが存在しない場合は新しくLabelEncoderを作成
+        if not hasattr(self, 'le_horse'):
             self.le_horse = LabelEncoder()
-            self.le_jockey = LabelEncoder()
+            self.le_horse.fit(self.df_race_results["horse_id"])
 
-        # 新しいIDをチェックし、必要に応じてLabelEncoderを更新
+        if not hasattr(self, 'le_jockey'):
+            self.le_jockey = LabelEncoder()
+            self.le_jockey.fit(self.df_race_results["jockey_id"])
+
         new_horse_ids = set(self.df_race_results["horse_id"]) - set(self.le_horse.classes_)
         if new_horse_ids:
             self.le_horse.classes_ = np.concatenate([self.le_horse.classes_, list(new_horse_ids)])
@@ -124,6 +174,7 @@ class HorsePastPreprocessor(Preprocessor):
         race_types = ["芝", "ダート", "障害"]
         ground_states = ["良", "稍重", "重", "不良"]
         sexes = self.df_race_results["性"].unique()
+        places = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
         self.df_race_results["weather"] = pd.Categorical(self.df_race_results["weather"], weathers)
         self.df_race_results["race_type"] = pd.Categorical(
             self.df_race_results["race_type"], race_types
@@ -132,11 +183,12 @@ class HorsePastPreprocessor(Preprocessor):
             self.df_race_results["ground_state"], ground_states
         )
         self.df_race_results["性"] = pd.Categorical(self.df_race_results["性"], sexes)
+        self.df_race_results["place"] = pd.Categorical(self.df_race_results["place"], places)
         self.df_race_results = pd.get_dummies(
-            self.df_race_results, columns=["weather", "race_type", "ground_state", "性"]
+            self.df_race_results, columns=["weather", "race_type", "ground_state", "性", "place", "season"]
         )
 
-class PedsPreprocessor(Preprocessor):
+class PedsPreprocessor():
     def __init__(self, df_peds):
         super().__init__()
         self.df_peds = df_peds

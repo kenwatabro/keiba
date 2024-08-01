@@ -90,6 +90,7 @@ def _save_horse_ids(horse_ids):
 
 
 def _save_files(year: str, place: int, df_horse_results: pd.DataFrame):
+    df_horse_results["place"] = str(place)
     df_horse_results.to_pickle(
         f"{SAVE_RACE_DATA_FOLDER}/Race_{year}_{place}.pickle"
     )
