@@ -15,7 +15,9 @@ class RaceScraper(Scraper):
         super().__init__()
 
         self.df_race = pd.DataFrame()
+        self.df_odds = pd.DataFrame()
         self.race_results = {}
+        self.odds_results = {}
         self.location_map = {
             "01": "札幌",
             "02": "函館",
@@ -31,7 +33,9 @@ class RaceScraper(Scraper):
 
     def scrape(self, id_list: list) -> pd.DataFrame:
         self.df_race = pd.DataFrame()
+        self.df_odds = pd.DataFrame()
         self.race_results = {}
+        self.odds_results = {}
         for race_id_no_round in tqdm(id_list):
             for i in range(1, 13):
                 race_id = race_id_no_round + str(i).zfill(2)
@@ -49,6 +53,7 @@ class RaceScraper(Scraper):
                     # print("Got horse and jockey id")
                     self._get_pace()
                     # print("Got lap time")
+                    self._get_odds()
                     self._set_index(race_id)
 
                 # 存在しないrace_idを飛ばす
@@ -75,8 +80,13 @@ class RaceScraper(Scraper):
             race_results_df = pd.concat([self.race_results[key] for key in self.race_results])
         else:
             race_results_df = pd.DataFrame()
+        
+        if self.odds_results:
+            odds_results_df = pd.concat([self.odds_results[key] for key in self.odds_results])
+        else:
+            odds_results_df = pd.DataFrame()
 
-        return race_results_df
+        return race_results_df, odds_results_df
 
     def _get_race_basic_info(self):
         self.df_race = pd.read_html(StringIO(self.html.text))[0]
@@ -161,11 +171,16 @@ class RaceScraper(Scraper):
             print("Race_Raptime クラスを持つsectionが見つかりませんでした。")
 
         self.df_race["pace"] = [pace] * len(self.df_race)
+    
+    def _get_odds(self):
+        self.df_odds = pd.read_html(StringIO(self.html.text))[1]
 
     def _set_index(self, race_id: str):
         # インデックスをrace_idにする
         self.df_race.index = [race_id] * len(self.df_race)
         self.race_results[race_id] = self.df_race
+        self.df_odds.index = [race_id] * len(self.df_odds)
+        self.odds_results[race_id] = self.df_odds
 
 
 class PedsScraper(Scraper):

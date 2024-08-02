@@ -9,6 +9,7 @@ from modules.Scrape import RaceScraper
 
 
 SAVE_RACE_DATA_FOLDER = "horse_results"
+SAVE_ODDS_DATA_FOLDER = "odds_results"
 HORSE_ID_FILE = "utils/horse_ids.json"
 
 
@@ -39,9 +40,9 @@ def acquire_race(trace_back_year):
                 print(f"Race_{year}_{place}.pickle is already exists.")
                 continue
 
-            df = _get_race_data(scraper, year, start, race_id_no_round_list[start:end])
+            df, odds_df = _get_race_data(scraper, year, start, race_id_no_round_list[start:end])
 
-            _save_files(year, place, df)
+            _save_files(year, place, df, odds_df)
 
 
 def _get_race_id_no_round_list(year: str) -> list[str]:  # 引数で指定された年のレースID一覧:
@@ -62,7 +63,7 @@ def _get_race_id_no_round_list(year: str) -> list[str]:  # 引数で指定され
 
 
 def _get_race_data(scraper: RaceScraper, year: str, start: int, race_id_list: list[str]) -> pd.DataFrame:
-    race_res = scraper.scrape(race_id_list)
+    race_res, odds_res = scraper.scrape(race_id_list)
 
     # horse_idのリストを更新
     existing_horse_ids = _load_horse_ids()
@@ -74,7 +75,7 @@ def _get_race_data(scraper: RaceScraper, year: str, start: int, race_id_list: li
         print(e)
     _save_horse_ids(updated_horse_ids)
 
-    return race_res
+    return race_res, odds_res
 
 
 def _load_horse_ids():
@@ -89,10 +90,13 @@ def _save_horse_ids(horse_ids):
         json.dump(list(horse_ids), f)
 
 
-def _save_files(year: str, place: int, df_horse_results: pd.DataFrame):
+def _save_files(year: str, place: int, df_horse_results: pd.DataFrame, df_odds: pd.DataFrame):
     df_horse_results["place"] = str(place)
     df_horse_results.to_pickle(
         f"{SAVE_RACE_DATA_FOLDER}/Race_{year}_{place}.pickle"
+    )
+    df_odds.to_pickle(
+        f"{SAVE_ODDS_DATA_FOLDER}/Odds_{year}_{place}.pickle"
     )
     print(f"Race_{year}_{place}.pickle is saved.")
 
