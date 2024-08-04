@@ -110,13 +110,13 @@ class RaceScraper(Scraper):
         for text in info:
             if "芝" in text:
                 self.df_race["race_type"] = ["芝"] * len(self.df_race)
-            if "ダート" in text:
+            if "ダ" in text:
                 self.df_race["race_type"] = ["ダート"] * len(self.df_race)
             if "障" in text:
                 self.df_race["race_type"] = ["障害"] * len(self.df_race)
             if "m" in text:
                 self.df_race["course_len"] = [int(re.findall(r"\d+", text)[-1])] * len(self.df_race)
-            if text in ["良", "稍重", "重", "不良"]:
+            if text in ["良", "稍", "重", "不"]:
                 self.df_race["ground_state"] = [text] * len(self.df_race)
                 if "障" in text:
                     self.df_race["ground_index"] = [0] * len(self.df_race)
