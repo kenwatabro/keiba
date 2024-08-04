@@ -9,7 +9,6 @@ from modules.Scrape import PedsScraper
 from modules.Preprocess import PedsPreprocessor
 
 SAVE_PEDS_DATA_FOLDER = "horse_peds"
-HORSE_ID_FILE = "utils/horse_ids.json"
 
 
 def acquire_peds():
@@ -27,10 +26,14 @@ def acquire_peds():
         print(f"horse_peds{start}_{end}.pickle is saved.")
 
 def _get_horse_id_list() -> list[str]:
-    if os.path.exists(HORSE_ID_FILE):
-        with open(HORSE_ID_FILE, "r") as f:
-            return list(set(json.load(f)))
-    return list(set())
+    df_horse_result = pd.DataFrame()
+    for year in range(2020, 2025):
+        for place in ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]:
+            df = pd.read_pickle(f"horse_results/Race_{year}_{place}.pickle")
+        if df.empty:
+            continue
+        df_horse_result = pd.concat([df_horse_result, df])
+    return list(df_horse_result.horse_id.unique())
 
 
 def _get_peds_data(scraper: PedsScraper, horse_id_list: list) -> pd.DataFrame:

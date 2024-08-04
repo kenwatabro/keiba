@@ -40,7 +40,7 @@ def acquire_race(trace_back_year):
                 print(f"Race_{year}_{place}.pickle is already exists.")
                 continue
 
-            df, odds_df = _get_race_data(scraper, year, start, race_id_no_round_list[start:end])
+            df, odds_df = scraper.scrape(race_id_no_round_list[start:end])
 
             _save_files(year, place, df, odds_df)
 
@@ -56,38 +56,11 @@ def _get_race_id_no_round_list(year: str) -> list[str]:  # 引数で指定され
                     + str(place).zfill(2)
                     + str(kai).zfill(2)
                     + str(day).zfill(2)
-                    # + str(r).zfill(2)
                 )
                 race_id_list.append(race_id)
     return race_id_list
 
 
-def _get_race_data(scraper: RaceScraper, year: str, start: int, race_id_list: list[str]) -> pd.DataFrame:
-    race_res, odds_res = scraper.scrape(race_id_list)
-
-    # horse_idのリストを更新
-    existing_horse_ids = _load_horse_ids()
-    try:
-        new_horse_ids = set(race_res["horse_id"].unique())
-        updated_horse_ids = existing_horse_ids.union(new_horse_ids)
-    except Exception as e:
-        updated_horse_ids = existing_horse_ids
-        print(e)
-    _save_horse_ids(updated_horse_ids)
-
-    return race_res, odds_res
-
-
-def _load_horse_ids():
-    if os.path.exists(HORSE_ID_FILE):
-        with open(HORSE_ID_FILE, "r") as f:
-            return set(json.load(f))
-    return set()
-
-
-def _save_horse_ids(horse_ids):
-    with open(HORSE_ID_FILE, "w") as f:
-        json.dump(list(horse_ids), f)
 
 
 def _save_files(year: str, place: int, df_horse_results: pd.DataFrame, df_odds: pd.DataFrame):
