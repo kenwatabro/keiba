@@ -1,9 +1,7 @@
-import sys
 import numpy as np
 import pandas as pd
 from datetime import datetime
 import os
-import json
 
 from modules.Scrape import PedsScraper
 from modules.Preprocess import PedsPreprocessor

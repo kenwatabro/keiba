@@ -4,7 +4,6 @@ from bs4 import BeautifulSoup
 import re
 import time
 from tqdm import tqdm
-from sklearn.preprocessing import LabelEncoder
 from io import StringIO
 import requests
 from selenium import webdriver
