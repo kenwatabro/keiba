@@ -30,9 +30,9 @@ def _get_horse_id_list() -> list[str]:
     for year in range(2020, 2025):
         for place in ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]:
             df = pd.read_pickle(f"horse_results/Race_{year}_{place}.pickle")
-        if df.empty:
-            continue
-        df_horse_result = pd.concat([df_horse_result, df])
+            if df.empty:
+                continue
+            df_horse_result = pd.concat([df_horse_result, df])
     return list(df_horse_result.horse_id.unique())
 
 
