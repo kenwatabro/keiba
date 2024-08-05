@@ -41,9 +41,6 @@ class Scraper(DataProcessor):
             redirect_url = self.ses.headers["Location"]
             self.ses = self.session.get(redirect_url, headers=self.headers)
 
-
-        # print(f"Cookies: {self.session.cookies}")
-
     @abstractmethod
     def scrape(id_list: list):
         pass
@@ -52,11 +49,5 @@ class Scraper(DataProcessor):
 class Preprocessor(DataProcessor):
     def __init__(self):
         super().__init__()
+
     
-    @abstractmethod
-    def fill_null_values(columns: list):
-        pass
-    
-    @abstractmethod
-    def get_categorical_values(columns: list):
-        pass
