@@ -20,6 +20,7 @@ class HorsePastPreprocessor(Preprocessor):
         self._split_columns()
         self._process_dates()
         self._process_pass_columns()
+        self._process_agari()
         self._add_season()
         self._get_categorical_values()
         self._add_time_index_features()
@@ -153,6 +154,20 @@ class HorsePastPreprocessor(Preprocessor):
         self.df_race_results["run_type"] = self.df_race_results.apply(
             calculate_run_type, axis=1
         )
+
+    def _process_agari(self):
+        # Convert '上り' to numeric, replacing '-' with NaN
+        self.df_race_results["上り"] = pd.to_numeric(
+            self.df_race_results["上り"].replace("-", np.nan), errors="coerce"
+        )
+
+        # Sort by horse_id and date
+        self.df_race_results = self.df_race_results.sort_values(["horse_id", "date"])
+
+        # Calculate the rolling mean of '上り' for each horse, excluding the current race
+        self.df_race_results["avg_上り"] = self.df_race_results.groupby("horse_id")[
+            "上り"
+        ].transform(lambda x: x.shift().expanding().mean())
 
     def _add_season(self):
         # 季節を追加（春：3-5月、夏：6-8月、秋：9-11月、冬：12-2月）
@@ -577,7 +592,7 @@ class HorseTodayPreprocessor(Preprocessor):
 
         # Merge with df_shutsuba_table
         self.df_shutsuba_table = self.df_shutsuba_table.merge(
-            avg_run_type.rename("上り"), on="horse_id", how="left"
+            avg_run_type.rename("avg_上り"), on="horse_id", how="left"
         )
 
     def _add_time_index_features(self):
