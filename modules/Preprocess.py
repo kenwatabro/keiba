@@ -254,7 +254,7 @@ class HorsePastPreprocessor(Preprocessor):
         # 列を一定にするため
         weathers = ["曇", "晴", "雨", "小雨", "小雪", "雪"]
         race_types = ["芝", "ダート", "障害"]
-        ground_states = ["良", "稍重", "重", "不良"]
+        ground_states = ["良", "稍", "重", "不"]
         sexes = self.df_race_results["性"].unique()
         places = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
 
@@ -334,9 +334,9 @@ class HorsePastPreprocessor(Preprocessor):
             "race_type": ["race_type_芝", "race_type_ダート", "race_type_障害"],
             "ground_state": [
                 "ground_state_良",
-                "ground_state_稍重",
+                "ground_state_稍",
                 "ground_state_重",
-                "ground_state_不良",
+                "ground_state_不",
             ],
             "place": [
                 "place_01",
@@ -618,9 +618,9 @@ class HorseTodayPreprocessor(Preprocessor):
             "race_type": ["race_type_芝", "race_type_ダート", "race_type_障害"],
             "ground_state": [
                 "ground_state_良",
-                "ground_state_稍重",
+                "ground_state_稍",
                 "ground_state_重",
-                "ground_state_不良",
+                "ground_state_不",
             ],
             "place": [
                 "place_01",
@@ -764,7 +764,7 @@ class HorseTodayPreprocessor(Preprocessor):
         # 列を一定にするため
         weathers = ["曇", "晴", "雨", "小雨", "小雪", "雪"]
         race_types = ["芝", "ダート", "障害"]
-        ground_states = ["良", "稍重", "重", "不良"]
+        ground_states = ["良", "稍", "重", "不"]
         sexes = ["牝", "牡", "セ"]
         places = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
         self.df_shutsuba_table["weather"] = pd.Categorical(
