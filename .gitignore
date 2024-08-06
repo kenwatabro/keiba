@@ -3,3 +3,5 @@ test.ipynb
 horse_results/
 horse_peds/
 odds_results/
+horse_preprocessed/
+*.pickle
