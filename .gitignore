@@ -9,3 +9,4 @@ horse_preprocessed/
 __pycache__
 */__pycache__/
 **/__pycache__/
+*.pkl
