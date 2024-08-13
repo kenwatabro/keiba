@@ -5,3 +5,7 @@ horse_peds/
 odds_results/
 horse_preprocessed/
 *.pickle
+*.joblib
+__pycache__
+*/__pycache__/
+**/__pycache__/
