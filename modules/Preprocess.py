@@ -35,18 +35,48 @@ class HorsePastPreprocessor(Preprocessor):
         self.df_race_results.columns = self.df_race_results.columns.str.strip()
 
     def _convert_numeric_values(self):
-        self.df_race_results["着順"] = pd.to_numeric(
-            self.df_race_results["着順"], errors="coerce"
-        )
+        # 数値型に変換する列のリスト
+        numeric_columns = {
+            "着順": "float",
+            "枠番": "float",
+            "馬番": "float",
+            "斤量": "float",
+            "タイム指数": "float",
+            "上り": "float",
+            "course_len": "float",
+            "年齢": "float",
+            "体重": "float",
+            "体重変化": "float",
+            "頭数": "float",
+            "run_type": "float",
+            "単勝": "float",
+            "place": "float",
+        }
+        
+        # 各列を数値型に変換
+        for col, dtype in numeric_columns.items():
+            if col in self.df_race_results.columns:
+                self.df_race_results[col] = pd.to_numeric(
+                    self.df_race_results[col], errors="coerce"
+                ).astype(dtype)
+        
+        # 着順関連の処理
         self.df_race_results.dropna(subset=["着順"], inplace=True)
-        self.df_race_results["着順"] = self.df_race_results["着順"].astype(int)
         self.df_race_results["rank"] = self.df_race_results["着順"].map(
             lambda x: 1 if x < 6 else 0
+        )
+        
+        # 単勝予測用のターゲット変数を追加
+        self.df_race_results["単勝的中"] = self.df_race_results["着順"].map(
+            lambda x: 1 if x == 1 else 0
+        )
+        self.df_race_results["単勝オッズ"] = pd.to_numeric(
+            self.df_race_results["単勝"], errors="coerce"
         )
 
         # 性齢を性と年齢に分ける
         self.df_race_results["性"] = self.df_race_results["性齢"].str[0]
-        self.df_race_results["年齢"] = self.df_race_results["性齢"].str[1:].astype(int)
+        self.df_race_results["年齢"] = self.df_race_results["性齢"].str[1:].astype(float)
 
         # 馬体重を体重と体重変化に分ける
         self.df_race_results["体重"] = self.df_race_results["馬体重"].str.split(
@@ -64,8 +94,6 @@ class HorsePastPreprocessor(Preprocessor):
             self.df_race_results["体重変化"], errors="coerce"
         )
 
-        # 単勝をfloatに変換
-        self.df_race_results["単勝"] = self.df_race_results["単勝"].astype(float)
         # 距離は10の位を切り捨てる
         self.df_race_results["course_len"] = (
             self.df_race_results["course_len"].astype(float) // 100
@@ -76,7 +104,7 @@ class HorsePastPreprocessor(Preprocessor):
             # 分と秒を分離
             minutes, seconds = time_str.split(":")
             # 分を秒に変換し、秒と合算
-            return int(minutes) * 60 + float(seconds)
+            return float(int(minutes) * 60 + float(seconds))
 
         # 'タイム' 列の各エントリに対して変換関数を適用
         self.df_race_results["タイム"] = self.df_race_results["タイム"].apply(
@@ -156,13 +184,13 @@ class HorsePastPreprocessor(Preprocessor):
         )
 
     def _add_new_features(self):
-        # 1. 馬の調子指標
+        # 1. 馬の調子指標（過去のデータのみを使用）
         self.df_race_results["調子スコア"] = (
             self.df_race_results["体重変化"].fillna(0) * 0.3 +
             self.df_race_results["上り"].fillna(0) * 0.7
         )
         
-        # 2. レース間隔
+        # 2. レース間隔（過去のデータのみを使用）
         self.df_race_results = self.df_race_results.sort_values(["horse_id", "date"])
         self.df_race_results["前回レースからの日数"] = (
             self.df_race_results.groupby("horse_id")["date"]
@@ -170,19 +198,19 @@ class HorsePastPreprocessor(Preprocessor):
             .dt.days
         )
         
-        # 3. 過去の成績指標
+        # 3. 過去の成績指標（過去のデータのみを使用）
         self.df_race_results["過去5走の着順平均"] = (
             self.df_race_results.groupby("horse_id")["着順"]
             .transform(lambda x: x.shift().rolling(window=5, min_periods=1).mean())
         )
         
-        # 4. コース適性
+        # 4. コース適性（過去のデータのみを使用）
         self.df_race_results["コース適性スコア"] = (
             self.df_race_results.groupby(["horse_id", "race_type"])["タイム指数"]
-            .transform("mean")
+            .transform(lambda x: x.shift().rolling(window=5, min_periods=1).mean())
         )
         
-        # 5. 騎手の調子
+        # 5. 騎手の調子（過去のデータのみを使用）
         self.df_race_results["騎手の調子"] = (
             self.df_race_results.groupby("jockey_id")["タイム指数"]
             .transform(lambda x: x.shift().rolling(window=5, min_periods=1).mean())
@@ -196,36 +224,36 @@ class HorsePastPreprocessor(Preprocessor):
         
         # 2. コースと天気の交互作用
         weather_dummies = pd.get_dummies(self.df_race_results["weather"], prefix="weather")
-        self.df_race_results["コース天気スコア"] = (
-            self.df_race_results["course_len"].values.reshape(-1, 1) * 
-            weather_dummies.values
-        )
+        for col in weather_dummies.columns:
+            self.df_race_results[f"コース天気スコア_{col}"] = (
+                self.df_race_results["course_len"] * weather_dummies[col]
+            )
         
         # 3. 馬場状態と走法の交互作用
         ground_dummies = pd.get_dummies(self.df_race_results["ground_state"], prefix="ground")
-        self.df_race_results["馬場走法スコア"] = (
-            self.df_race_results["run_type"].values.reshape(-1, 1) * 
-            ground_dummies.values
-        )
+        for col in ground_dummies.columns:
+            self.df_race_results[f"馬場走法スコア_{col}"] = (
+                self.df_race_results["run_type"] * ground_dummies[col]
+            )
 
     def _enhance_time_series_features(self):
-        # 1. より長期のトレンド
+        # 1. より長期のトレンド（過去のデータのみを使用）
         for window in [10, 20, 30]:
             self.df_race_results[f"タイム指数トレンド_{window}"] = (
                 self.df_race_results.groupby("horse_id")["タイム指数"]
                 .transform(lambda x: x.shift().rolling(window=window, min_periods=1).mean())
             )
         
-        # 2. 季節性の考慮
+        # 2. 季節性の考慮（過去のデータのみを使用）
         self.df_race_results["月別平均タイム"] = (
-            self.df_race_results.groupby(["horse_id", "date"].dt.month)["タイム指数"]
-            .transform("mean")
+            self.df_race_results.groupby(["horse_id", self.df_race_results["date"].dt.month])["タイム指数"]
+            .transform(lambda x: x.shift().rolling(window=5, min_periods=1).mean())
         )
         
-        # 3. レース間隔の統計量
+        # 3. レース間隔の統計量（過去のデータのみを使用）
         self.df_race_results["レース間隔の標準偏差"] = (
             self.df_race_results.groupby("horse_id")["前回レースからの日数"]
-            .transform("std")
+            .transform(lambda x: x.shift().rolling(window=5, min_periods=1).std())
         )
 
     def _handle_categorical_encoding(self):
@@ -262,7 +290,7 @@ class HorsePastPreprocessor(Preprocessor):
         # 日付でソート
         self.df_race_results = self.df_race_results.sort_values(["horse_id", "date"])
 
-        # 固定ウィンドウを使用してローリングフィーチャーを計算
+        # 固定ウィンドウを使用してローリングフィーチャーを計算（過去のデータのみを使用）
         window_sizes = [3, 5]
         for window in window_sizes:
             self.df_race_results[f"time_index_mean_last_{window}"] = self.df_race_results.groupby("horse_id")["タイム指数"].transform(
@@ -276,9 +304,12 @@ class HorsePastPreprocessor(Preprocessor):
             )
 
     def _select_features(self):
+        # 数値型の列のみを選択
+        numeric_columns = self.df_race_results.select_dtypes(include=['float64', 'int64']).columns
+        
         # 1. 相関の高い特徴量の削除
         correlation_threshold = 0.95
-        corr_matrix = self.df_race_results.corr().abs()
+        corr_matrix = self.df_race_results[numeric_columns].corr().abs()
         upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
         to_drop = [column for column in upper.columns if any(upper[column] > correlation_threshold)]
         self.df_race_results.drop(columns=to_drop, inplace=True)
@@ -289,7 +320,6 @@ class HorsePastPreprocessor(Preprocessor):
     def _drop_unnecessary_columns(self):
         self.df_race_results.drop(
             [
-                "単勝",
                 "着差",
                 "通過",
                 "調教師",
@@ -384,6 +414,22 @@ class HorseTodayPreprocessor(Preprocessor):
         self.df_shutsuba_table.columns = self.df_shutsuba_table.columns.str.strip()
 
     def _convert_numeric_values(self):
+        self.df_shutsuba_table["着順"] = pd.to_numeric(
+            self.df_shutsuba_table["着順"], errors="coerce"
+        )
+        self.df_shutsuba_table.dropna(subset=["着順"], inplace=True)
+        self.df_shutsuba_table["着順"] = self.df_shutsuba_table["着順"].astype(int)
+        self.df_shutsuba_table["rank"] = self.df_shutsuba_table["着順"].map(
+            lambda x: 1 if x < 6 else 0
+        )
+        
+        # 単勝予測用のターゲット変数を追加
+        self.df_shutsuba_table["単勝的中"] = self.df_shutsuba_table["着順"].map(
+            lambda x: 1 if x == 1 else 0
+        )
+        self.df_shutsuba_table["単勝オッズ"] = pd.to_numeric(
+            self.df_shutsuba_table["単勝"], errors="coerce"
+        )
 
         # 性齢を性と年齢に分ける
         self.df_shutsuba_table["性"] = self.df_shutsuba_table["性齢"].str[0]
@@ -406,6 +452,18 @@ class HorseTodayPreprocessor(Preprocessor):
         # 距離は10の位を切り捨てる
         self.df_shutsuba_table["course_len"] = (
             self.df_shutsuba_table["course_len"].astype(float) // 100
+        )
+
+        def convert_time_to_seconds(time_str):
+            # タイムの形式が '分:秒.ミリ秒' と仮定
+            # 分と秒を分離
+            minutes, seconds = time_str.split(":")
+            # 分を秒に変換し、秒と合算
+            return float(int(minutes) * 60 + float(seconds))
+
+        # 'タイム' 列の各エントリに対して変換関数を適用
+        self.df_shutsuba_table["タイム"] = self.df_shutsuba_table["タイム"].apply(
+            convert_time_to_seconds
         )
 
     def _process_dates(self):
