@@ -1,0 +1,13 @@
+pandas
+numpy==2.0.1
+scikit-learn
+lightgbm
+requests
+beautifulsoup4
+tqdm
+optuna
+matplotlib
+selenium
+webdriver_manager
+lxml
+optuna-integration[lightgbm]
