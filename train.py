@@ -1,271 +1,265 @@
 import os
-import pandas as pd
-import numpy as np
-import datetime
-from tqdm.notebook import tqdm
-from sklearn.metrics import roc_auc_score
-from sklearn.preprocessing import LabelEncoder
-import lightgbm as lgb
-import requests
-from bs4 import BeautifulSoup
-import time
-import re
-from urllib.request import urlopen
-import optuna
-from optuna.integration import lightgbm as lgb_o
-from itertools import combinations, permutations
-import matplotlib.pyplot as plt
-from sklearn.feature_selection import SelectFromModel
-from sklearn.model_selection import StratifiedKFold
 import pickle
+import datetime
+from itertools import combinations, permutations
+
+import numpy as np
+import pandas as pd
+from tqdm.notebook import tqdm
+
+import lightgbm as lgb
+import optuna
+
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import roc_auc_score
+
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+from matplotlib import font_manager
 
 from modules.Preprocess import HorsePastPreprocessor
 
+# -----------------------------------------------------------------------------
+# 0.  グローバル設定
+# -----------------------------------------------------------------------------
 DATA_PATH = "horse_preprocessed/Race_preprocessed.pickle"
+CATEGORICAL_COLUMNS = ["性", "調教場所"]
+
+# ----- 日本語フォントの設定 --------------------------------------------------
+if not any("IPAGothic" in f.name for f in font_manager.fontManager.ttflist):
+    # IPA ゴシックが無い環境 → Noto Sans CJK にフォールバック
+    plt.rcParams["font.family"] = "Noto Sans CJK JP"
+else:
+    plt.rcParams["font.family"] = "IPAGothic"
+plt.rcParams["axes.unicode_minus"] = False
 
 
-def get_data():
+# -----------------------------------------------------------------------------
+# 1.  データ取得・前処理
+# -----------------------------------------------------------------------------
+
+def get_data() -> pd.DataFrame:
+    """Pickle があれば読み込み、無ければ前処理を実行"""
     if os.path.exists(DATA_PATH):
-        data = pd.read_pickle(DATA_PATH)
-    else:
-        data = _preprocess_horse_data()
-    return data
+        return pd.read_pickle(DATA_PATH)
+    return _preprocess_horse_data()
 
 
-def _preprocess_horse_data():
-    # ディレクトリが存在しない場合は作成
+def _preprocess_horse_data() -> pd.DataFrame:
     os.makedirs("horse_preprocessed", exist_ok=True)
-    
-    df_race_result_all = pd.DataFrame()
+
+    df_all = []
     for file in os.listdir("horse_results"):
         if file.endswith(".pickle"):
-            df_race_results = pd.read_pickle(f"horse_results/{file}")
-            if df_race_results.empty:
-                continue
-            df_race_result_all = pd.concat([df_race_result_all, df_race_results])
+            df = pd.read_pickle(f"horse_results/{file}")
+            if not df.empty:
+                df_all.append(df)
+    df_race = pd.concat(df_all, ignore_index=True)
 
-    hpp = HorsePastPreprocessor(df_race_result_all)
-    df_race_result_all_preprocessed = hpp.preprocess()
-
-    df_race_result_all_preprocessed.to_pickle(
-        "horse_preprocessed/Race_preprocessed.pickle"
-    )
-    return df_race_result_all_preprocessed
+    hpp = HorsePastPreprocessor(df_race)
+    df_processed = hpp.preprocess()
+    df_processed.to_pickle(DATA_PATH)
+    return df_processed
 
 
-def split_data(df, test_size=0.3):
-    # 日付でソート
-    df = df.sort_values('date')
-    
-    # 時系列を考慮した分割
-    split_idx = int(len(df) * (1 - test_size))
-    train = df.iloc[:split_idx].copy()
-    test = df.iloc[split_idx:].copy()
-    
+# -----------------------------------------------------------------------------
+# 2.  ユーティリティ
+# -----------------------------------------------------------------------------
+
+def split_data(df: pd.DataFrame, test_size: float = 0.3):
+    """時系列順に train / test を hold‑out 分割"""
+    df_sorted = df.sort_values("date").reset_index(drop=True)
+    split_idx = int(len(df_sorted) * (1 - test_size))
+    train = df_sorted.iloc[:split_idx].copy()
+    test = df_sorted.iloc[split_idx:].copy()
     return train, test
 
 
-def select_features_by_importance(X_train, y_train, X_valid, y_valid, importance_threshold=0.01):
-    # カテゴリカル変数の処理
-    categorical_columns = ["性", "調教場所"]
-    for col in categorical_columns:
-        if col in X_train.columns:
-            # 欠損値を'Unknown'に置換
-            X_train[col] = X_train[col].fillna('Unknown')
-            X_valid[col] = X_valid[col].fillna('Unknown')
-            # エンコーディング
+def select_features_by_importance(X_train, y_train, X_valid, y_valid, top_k: int = 30):
+    """LightGBM の gain で上位 top_k 特徴量を選択"""
+
+    # --- カテゴリ変数エンコード（学習用簡易モデルなので直接 fit） ---
+    X_train_enc, X_valid_enc = X_train.copy(), X_valid.copy()
+    # --- CATEGORICAL_COLUMNS をエンコード ------------------------------
+    for col in CATEGORICAL_COLUMNS:
+        if col in X_train_enc.columns:
+            # ⚠️ category → object に剥がしてから欠損補完
+            X_train_enc[col] = X_train_enc[col].astype("object").fillna("Unknown")
+            X_valid_enc[col] = X_valid_enc[col].astype("object").fillna("Unknown")
+
             le = LabelEncoder()
-            X_train[col] = le.fit_transform(X_train[col])
-            X_valid[col] = le.transform(X_valid[col])
-            # カテゴリ型に変換
-            X_train[col] = X_train[col].astype('category')
-            X_valid[col] = X_valid[col].astype('category')
-    
-    # 初期モデルをトレーニング
-    model = lgb.LGBMClassifier(
+            X_train_enc[col] = le.fit_transform(X_train_enc[col])
+            X_valid_enc[col] = le.transform(X_valid_enc[col])
+
+            # LightGBM に渡すときは “整数 + Categorical” が最速
+            X_train_enc[col] = pd.Categorical(X_train_enc[col])
+            X_valid_enc[col] = pd.Categorical(X_valid_enc[col])
+
+
+    lgb_tmp = lgb.LGBMClassifier(
         objective="binary",
         metric="auc",
         boosting_type="gbdt",
         num_leaves=31,
         learning_rate=0.05,
-        n_estimators=100,
-        random_state=42
+        n_estimators=200,
+        random_state=42,
+        verbose=-1,
     )
-    
-    # 特徴量の重要度を計算
-    model.fit(X_train, y_train)
-    importance = pd.DataFrame({
-        'feature': X_train.columns,
-        'importance': model.feature_importances_
-    })
-    
-    # 重要度の高い特徴量を選択
-    important_features = importance[importance['importance'] > importance_threshold]['feature']
-    
-    return important_features.tolist()
+    lgb_tmp.fit(X_train_enc, y_train, eval_set=[(X_valid_enc, y_valid)], callbacks=[lgb.log_evaluation(0)])
 
-def optimize_hyperparameters(X_train, y_train, X_valid, y_valid):
+    gain_df = pd.DataFrame(
+        {
+            "feature": X_train.columns,
+            "gain": lgb_tmp.booster_.feature_importance(importance_type="gain"),
+        }
+    ).sort_values("gain", ascending=False)
+
+    return gain_df["feature"].head(top_k).tolist()
+
+
+# -----------------------------------------------------------------------------
+# 3.  ハイパーパラメータ最適化
+# -----------------------------------------------------------------------------
+
+def optimize_hyperparameters(X_train, y_train, X_valid, y_valid, n_trials: int = 20):
     def objective(trial):
         params = {
             "objective": "binary",
-            "metric": "auc",
+            "metric": "binary_logloss",
             "boosting_type": "gbdt",
             "num_leaves": trial.suggest_int("num_leaves", 20, 50),
             "max_depth": trial.suggest_int("max_depth", 3, 10),
             "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.1),
-            "n_estimators": trial.suggest_int("n_estimators", 100, 1000),
+            "n_estimators": trial.suggest_int("n_estimators", 200, 1200),
             "min_child_samples": trial.suggest_int("min_child_samples", 10, 50),
             "subsample": trial.suggest_float("subsample", 0.6, 1.0),
             "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
+            "min_child_weight": trial.suggest_float("min_child_weight", 1e-3, 1e-1, log=True),
+            "reg_alpha": trial.suggest_float("reg_alpha", 1e-8, 1.0, log=True),
+            "reg_lambda": trial.suggest_float("reg_lambda", 1e-8, 1.0, log=True),
             "random_state": 42,
+            "verbose": -1,
         }
-        
-        lgb_train = lgb_o.Dataset(X_train.values, y_train.values)
-        lgb_valid = lgb_o.Dataset(X_valid.values, y_valid.values)
-        
-        model = lgb_o.train(
-            params,
-            lgb_train,
-            num_boost_round=1000,
-            valid_sets=(lgb_train, lgb_valid),
-            callbacks=[
-                lgb_o.early_stopping(stopping_rounds=50),
-                lgb_o.log_evaluation(period=100),
-            ],
-            optuna_seed=100,
+        model = lgb.LGBMClassifier(**params)
+        model.fit(
+            X_train,
+            y_train,
+            eval_set=[(X_valid, y_valid)],
+            callbacks=[lgb.early_stopping(20)],
         )
-        
-        return model.best_score['valid_0']['auc']
-    
-    study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=50)
-    
+        return model.best_score_["valid_0"]["binary_logloss"]
+
+    study = optuna.create_study(direction="minimize")
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
     return study.best_params
 
-def train_model(data, target="rank"):
-    # データの分割（時系列を考慮）
-    train, test = split_data(data)
-    
-    # カテゴリカル変数のエンコーディング（トレーニングデータのみで学習）
-    categorical_columns = ["性", "調教場所"]
+
+# -----------------------------------------------------------------------------
+# 4.  メイン学習関数
+# -----------------------------------------------------------------------------
+
+def train_model(
+    data: pd.DataFrame,
+    target: str = "rank",
+    test_size: float = 0.3,
+    valid_size: float = 0.2,
+):
+    """時系列 hold‑out → train/valid/test の 3 分割で学習"""
+
+    # ----- 時系列 hold‑out -----
+    train_full, test = split_data(data, test_size=test_size)
+    train, valid = split_data(train_full, test_size=valid_size)
+
+    # ----- 日付特徴量 -----
+    for df_ in (train, valid, test):
+        df_["year"] = df_["date"].dt.year
+        df_["month"] = df_["date"].dt.month
+        df_["day"] = df_["date"].dt.day
+        df_["dow"] = df_["date"].dt.dayofweek
+        df_.drop(columns=["date"], inplace=True)
+
+    # ----- X / y 分離 -----
+    drop_cols = [c for c in (target, "単勝的中", "単勝オッズ") if c in train.columns]
+    X_train, y_train = train.drop(columns=drop_cols), train[target]
+    X_valid, y_valid = valid.drop(columns=drop_cols), valid[target]
+    X_test, y_test = test.drop(columns=drop_cols), test[target]
+
+    # ----- Feature selection -----
+    feat_list = select_features_by_importance(
+        X_train.copy(), y_train, X_valid.copy(), y_valid, top_k=30
+    )
+    X_train, X_valid, X_test = (
+        X_train[feat_list], X_valid[feat_list], X_test[feat_list]
+    )
+
     encoders = {}
-    
-    # トレーニングデータのみでエンコーダーを学習
-    for col in categorical_columns:
-        if col in train.columns:
-            encoders[col] = LabelEncoder()
-            # 欠損値を'Unknown'に置換
-            train[col] = train[col].fillna('Unknown')
-            test[col] = test[col].fillna('Unknown')
-            # エンコーディング
-            train[col] = encoders[col].fit_transform(train[col])
-            # テストデータは学習済みのエンコーダーで変換
-            test[col] = test[col].map(lambda x: x if x in encoders[col].classes_ else "Unknown")
-            test[col] = encoders[col].transform(test[col])
-            # カテゴリ型に変換
-            train[col] = train[col].astype('category')
-            test[col] = test[col].astype('category')
-    
-    # 日付関連の特徴量を作成
-    train["year"] = train["date"].dt.year
-    train["month"] = train["date"].dt.month
-    train["day"] = train["date"].dt.day
-    train["dayofweek"] = train["date"].dt.dayofweek
-    
-    test["year"] = test["date"].dt.year
-    test["month"] = test["date"].dt.month
-    test["day"] = test["date"].dt.day
-    test["dayofweek"] = test["date"].dt.dayofweek
-    
-    # 日付列を削除
-    train = train.drop("date", axis=1)
-    test = test.drop("date", axis=1)
-    
-    # 特徴量とターゲットの分離
-    drop_cols = [col for col in [target, "単勝的中", "単勝オッズ"] if col in train.columns]
-    X_train = train.drop(drop_cols, axis=1)
-    y_train = train[target]
-    X_test = test.drop(drop_cols, axis=1)
-    y_test = test[target]
-    
-    # 重要度の高い特徴量を選択（トレーニングデータのみで選択）
-    important_features = select_features_by_importance(X_train, y_train, X_train, y_train)
-    X_train = X_train[important_features]
-    X_test = X_test[important_features]
-    
-    # ハイパーパラメータの最適化
-    best_params = optimize_hyperparameters(X_train, y_train, X_train, y_train)
-    
-    # モデルの学習
+    for col in CATEGORICAL_COLUMNS:
+        if col in X_train.columns:
+            le = LabelEncoder()
+            for df_ in (X_train, X_valid, X_test):
+                df_[col] = df_[col].fillna("Unknown")
+            X_train[col] = le.fit_transform(X_train[col])
+            X_valid[col] = le.transform(X_valid[col])
+            X_test[col]  = X_test[col].map(
+                lambda x: x if x in le.classes_ else "Unknown"
+            ).pipe(le.transform)
+            for df_ in (X_train, X_valid, X_test):
+                df_[col] = pd.Categorical(df_[col])
+            encoders[col] = le
+
+    # ----- Hyper‑parameter tuning -----
+    best_params = optimize_hyperparameters(X_train, y_train, X_valid, y_valid)
+    best_params["verbose"] = -1
+
+    # ----- Final model: train+valid で再学習 -----
+    X_train_full = pd.concat([X_train, X_valid], axis=0)
+    y_train_full = pd.concat([y_train, y_valid], axis=0)
+
     model = lgb.LGBMClassifier(**best_params)
-    model.fit(X_train, y_train)
-    
-    # モデルとエンコーダーを保存
+    model.fit(X_train_full, y_train_full)
+
+    # ----- 評価 -----
+    y_pred_proba = model.predict_proba(X_test)[:, 1]
+    auc = roc_auc_score(y_test, y_pred_proba)
+    print(f"Test AUC: {auc:.4f}")
+
+    # ----- 保存 -----
     os.makedirs("trained_models", exist_ok=True)
     with open("trained_models/model.pkl", "wb") as f:
         pickle.dump(model, f)
     with open("trained_models/encoders.pkl", "wb") as f:
         pickle.dump(encoders, f)
     with open("trained_models/important_features.pkl", "wb") as f:
-        pickle.dump(important_features, f)
-    
-    # モデルの評価
-    y_pred = model.predict(X_test)
-    auc_score = roc_auc_score(y_test, y_pred)
-    print(f"Test AUC: {auc_score:.4f}")
-    
-    return model, important_features, encoders
+        pickle.dump(feat_list, f)
 
-if __name__ == "__main__":
-    data = get_data()
-    data = data.drop(columns=["タイム指数", "上り"])
-    train, test = split_data(data)
-    train, valid = split_data(train)
+    # ----- Feature importance plot -----
+    imp_df = pd.DataFrame(
+        {
+            "feature": feat_list,
+            "gain": model.booster_.feature_importance(importance_type="gain"),
+        }
+    ).sort_values("gain", ascending=False)
 
-    X_train = train.drop(["rank", "date"], axis=1)
-    y_train = train["rank"]
-    X_valid = valid.drop(["rank", "date"], axis=1)
-    y_valid = valid["rank"]
-    X_test = test.drop(["rank", "date"], axis=1)
-    y_test = test["rank"]
-
-    # 特徴量の選択
-    important_features = select_features_by_importance(X_train, y_train, X_valid, y_valid)
-    X_train = X_train[important_features]
-    X_valid = X_valid[important_features]
-    X_test = X_test[important_features]
-
-    # ハイパーパラメータの最適化
-    best_params = optimize_hyperparameters(X_train, y_train, X_valid, y_valid)
-    
-    # 最適化されたパラメータでモデルをトレーニング
-    lgb_train = lgb_o.Dataset(X_train.values, y_train.values)
-    lgb_valid = lgb_o.Dataset(X_valid.values, y_valid.values)
-    lgb_test = lgb_o.Dataset(X_test.values, y_test.values)
-
-    lgb_clf_o = lgb_o.train(
-        best_params,
-        lgb_train,
-        num_boost_round=1000,
-        valid_sets=(lgb_train, lgb_valid),
-        callbacks=[
-            lgb_o.early_stopping(stopping_rounds=50),
-            lgb_o.log_evaluation(period=100),
-        ],
-        optuna_seed=100,
-    )
-    
-    # 特徴量の重要度を可視化
-    importance = pd.DataFrame({
-        'feature': X_train.columns,
-        'importance': lgb_clf_o.feature_importance()
-    })
-    importance = importance.sort_values('importance', ascending=False)
-    
-    plt.figure(figsize=(12, 6))
-    plt.bar(importance['feature'][:20], importance['importance'][:20])
-    plt.xticks(rotation=45, ha='right')
-    plt.title('Top 20 Feature Importance')
+    plt.figure(figsize=(10, 5))
+    plt.bar(imp_df["feature"].head(20), imp_df["gain"].head(20))
+    plt.xticks(rotation=45, ha="right")
+    plt.title("Top 20 Feature Importance (gain)")
     plt.tight_layout()
-    plt.savefig('feature_importance.png')
+    plt.savefig("feature_importance.png")
     plt.close()
+
+    return model, feat_list, encoders, auc
+
+
+# -----------------------------------------------------------------------------
+# 5.  エントリポイント
+# -----------------------------------------------------------------------------
+if __name__ == "__main__":
+    raw_data = get_data()
+    # 使わない列を削除（存在しない場合も無視）
+    raw_data = raw_data.drop(columns=["タイム指数", "上り"], errors="ignore")
+
+    model, feats, encoders, auc_score = train_model(raw_data, target="rank")
+    print("\n=== Training finished ===")
+    print(f"Selected {len(feats)} features → trained model saved to trained_models/ .")
